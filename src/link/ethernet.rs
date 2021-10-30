@@ -1,6 +1,7 @@
 use super::super::*;
 
 extern crate byteorder;
+
 use self::byteorder::{ByteOrder, BigEndian, ReadBytesExt};
 
 use std::io;
@@ -14,7 +15,7 @@ pub enum EtherType {
     WakeOnLan = 0x0842,
     VlanTaggedFrame = 0x8100,
     ProviderBridging = 0x88A8,
-    VlanDoubleTaggedFrame = 0x9100
+    VlanDoubleTaggedFrame = 0x9100,
 }
 
 impl EtherType {
@@ -37,9 +38,9 @@ impl EtherType {
 ///Ethernet II header.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Ethernet2Header {
-    pub source: [u8;6],
-    pub destination: [u8;6],
-    pub ether_type: u16
+    pub source: [u8; 6],
+    pub destination: [u8; 6],
+    pub ether_type: u16,
 }
 
 impl SerializedSize for Ethernet2Header {
@@ -48,19 +49,10 @@ impl SerializedSize for Ethernet2Header {
 }
 
 impl Ethernet2Header {
-
-    ///Read an Ethernet2Header from a slice and return the header & unused parts of the slice.
-    pub fn read_from_slice(slice: &[u8]) -> Result<(Ethernet2Header, &[u8]), ReadError> {
-        Ok((
-            Ethernet2HeaderSlice::from_slice(slice)?.to_header(),
-            &slice[Ethernet2Header::SERIALIZED_SIZE..]
-        ))
-    }
-
     ///Reads an Ethernet-II header from the current position of the read argument.
     pub fn read<T: io::Read + io::Seek + Sized>(reader: &mut T) -> Result<Ethernet2Header, io::Error> {
-        fn read_mac_address<T: io::Read>(read: &mut T) -> Result<[u8;6], io::Error> {
-            let mut result: [u8;6] = [0;6];
+        fn read_mac_address<T: io::Read>(read: &mut T) -> Result<[u8; 6], io::Error> {
+            let mut result: [u8; 6] = [0; 6];
             read.read_exact(&mut result)?;
             Ok(result)
         }
@@ -68,7 +60,7 @@ impl Ethernet2Header {
         Ok(Ethernet2Header {
             destination: read_mac_address(reader)?,
             source: read_mac_address(reader)?,
-            ether_type: reader.read_u16::<BigEndian>()?
+            ether_type: reader.read_u16::<BigEndian>()?,
         })
     }
 
@@ -86,7 +78,7 @@ impl Ethernet2Header {
 
     ///Writes a given Ethernet-II header to the current position of the write argument.
     pub fn write<T: io::Write + Sized>(&self, writer: &mut T) -> Result<(), io::Error> {
-        let mut buffer: [u8;Ethernet2Header::SERIALIZED_SIZE] = Default::default();
+        let mut buffer: [u8; Ethernet2Header::SERIALIZED_SIZE] = Default::default();
         self.write_to_slice_unchecked(&mut buffer);
         writer.write_all(&buffer)
     }
@@ -101,60 +93,70 @@ impl Ethernet2Header {
 
 ///A slice containing an ethernet 2 header of a network package.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Ethernet2HeaderSlice<'a> {
-    slice: &'a [u8]
+pub struct Ethernet2HeaderSlice<T: AsRef<[u8]>> {
+    slice: T,
 }
 
-impl<'a> Ethernet2HeaderSlice<'a> {
+impl<'a> Ethernet2HeaderSlice<&'a [u8]> {
     ///Creates a ethernet slice from an other slice.
-    pub fn from_slice(slice: &'a[u8]) -> Result<Ethernet2HeaderSlice<'a>, ReadError>{
+    pub fn from_slice(buffer: &'a [u8]) -> Result<(Self, &'a [u8]), ReadError> {
+        let len = Self::length(buffer)?;
+        let (slice, extra) = buffer.split_at(len);
+
+        Ok((Ethernet2HeaderSlice {
+            slice
+        }, extra))
+    }
+}
+
+impl<T: AsRef<[u8]>> Ethernet2HeaderSlice<T> {
+    pub fn length(buffer: T) -> Result<usize, ReadError> {
+        let slice = buffer.as_ref();
+
         //check length
         use crate::ReadError::*;
         if slice.len() < Ethernet2Header::SERIALIZED_SIZE {
             return Err(UnexpectedEndOfSlice(Ethernet2Header::SERIALIZED_SIZE));
         }
 
-        //all done
-        Ok(Ethernet2HeaderSlice {
-            slice: &slice[..14]
-        })
+        Ok(14)
     }
 
     ///Returns the slice containing the ethernet 2 header
     #[inline]
-    pub fn slice(&self) -> &'a [u8] {
-        self.slice
+    pub fn slice(&self) -> &[u8] {
+        self.slice.as_ref()
     }
 
     ///Read the destination mac address
-    pub fn destination(&self) -> &'a [u8] {
-        &self.slice[..6]
+    pub fn destination(&self) -> &[u8] {
+        &self.slice.as_ref()[..6]
     }
 
     ///Read the source mac address
-    pub fn source(&self) -> &'a [u8] {
-        &self.slice[6..12]
+    pub fn source(&self) -> &[u8] {
+        &self.slice.as_ref()[6..12]
     }
 
     ///Read the ether_type field of the header (in system native byte order).
     pub fn ether_type(&self) -> u16 {
-        BigEndian::read_u16(&self.slice[12..14])
+        BigEndian::read_u16(&self.slice.as_ref()[12..14])
     }
 
     ///Decode all the fields and copy the results to a Ipv4Header struct
     pub fn to_header(&self) -> Ethernet2Header {
         Ethernet2Header {
             source: {
-                let mut result: [u8;6] = Default::default();
+                let mut result: [u8; 6] = Default::default();
                 result.copy_from_slice(self.source());
                 result
             },
             destination: {
-                let mut result: [u8;6] = Default::default();
+                let mut result: [u8; 6] = Default::default();
                 result.copy_from_slice(self.destination());
                 result
             },
-            ether_type: self.ether_type()
+            ether_type: self.ether_type(),
         }
     }
 }

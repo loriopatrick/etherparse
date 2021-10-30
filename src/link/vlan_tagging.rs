@@ -1,9 +1,11 @@
 use super::super::*;
 
 extern crate byteorder;
+
 use self::byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
 
 use std::io;
+use std::io::Read;
 
 ///IEEE 802.1Q VLAN Tagging Header (can be single or double tagged).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -11,7 +13,7 @@ pub enum VlanHeader {
     ///IEEE 802.1Q VLAN Tagging Header
     Single(SingleVlanHeader),
     ///IEEE 802.1Q double VLAN Tagging Header
-    Double(DoubleVlanHeader)
+    Double(DoubleVlanHeader),
 }
 
 ///IEEE 802.1Q VLAN Tagging Header
@@ -33,19 +35,10 @@ impl SerializedSize for SingleVlanHeader {
 }
 
 impl SingleVlanHeader {
-
-    ///Read an SingleVlanHeader from a slice and return the header & unused parts of the slice.
-    pub fn read_from_slice(slice: &[u8]) -> Result<(SingleVlanHeader, &[u8]), ReadError> {
-        Ok((
-            SingleVlanHeaderSlice::from_slice(slice)?.to_header(),
-            &slice[SingleVlanHeader::SERIALIZED_SIZE .. ]
-        ))
-    }
-
     ///Read a IEEE 802.1Q VLAN tagging header
-    pub fn read<T: io::Read + io::Seek + Sized >(reader: &mut T) -> Result<SingleVlanHeader, io::Error> {
+    pub fn read<T: io::Read + io::Seek + Sized>(reader: &mut T) -> Result<SingleVlanHeader, io::Error> {
         let (priority_code_point, drop_eligible_indicator, vlan_identifier) = {
-            let mut buffer: [u8;2] = [0;2];
+            let mut buffer: [u8; 2] = [0; 2];
             reader.read_exact(&mut buffer)?;
             let drop_eligible_indicator = 0 != (buffer[0] & 0x10);
             let priority_code_point = buffer[0] >> 5;
@@ -54,11 +47,11 @@ impl SingleVlanHeader {
             (priority_code_point, drop_eligible_indicator, BigEndian::read_u16(&buffer))
         };
 
-        Ok(SingleVlanHeader{
+        Ok(SingleVlanHeader {
             priority_code_point,
             drop_eligible_indicator,
             vlan_identifier,
-            ether_type: reader.read_u16::<BigEndian>()?
+            ether_type: reader.read_u16::<BigEndian>()?,
         })
     }
 
@@ -69,7 +62,7 @@ impl SingleVlanHeader {
         max_check_u8(self.priority_code_point, 0x7, VlanTagPriorityCodePoint)?;
         max_check_u16(self.vlan_identifier, 0xfff, VlanTagVlanId)?;
         {
-            let mut buffer: [u8;2] = [0;2];
+            let mut buffer: [u8; 2] = [0; 2];
             BigEndian::write_u16(&mut buffer, self.vlan_identifier);
             if self.drop_eligible_indicator {
                 buffer[0] |= 0x10;
@@ -88,7 +81,7 @@ pub struct DoubleVlanHeader {
     ///The outer vlan tagging header
     pub outer: SingleVlanHeader,
     ///The inner vlan tagging header
-    pub inner: SingleVlanHeader
+    pub inner: SingleVlanHeader,
 }
 
 impl SerializedSize for DoubleVlanHeader {
@@ -101,12 +94,12 @@ impl DoubleVlanHeader {
     pub fn read_from_slice(slice: &[u8]) -> Result<(DoubleVlanHeader, &[u8]), ReadError> {
         Ok((
             DoubleVlanHeaderSlice::from_slice(slice)?.to_header(),
-            &slice[DoubleVlanHeader::SERIALIZED_SIZE .. ]
+            &slice[DoubleVlanHeader::SERIALIZED_SIZE..]
         ))
     }
 
     ///Read a double tagging header from the given source
-    pub fn read<T: io::Read + io::Seek + Sized >(reader: &mut T) -> Result<DoubleVlanHeader, ReadError> {
+    pub fn read<T: io::Read + io::Seek + Sized>(reader: &mut T) -> Result<DoubleVlanHeader, ReadError> {
         let outer = SingleVlanHeader::read(reader)?;
 
 
@@ -118,11 +111,11 @@ impl DoubleVlanHeader {
         //check that outer ethertype is matching
         match outer.ether_type {
             VLAN_TAGGED_FRAME | PROVIDER_BRIDGING | VLAN_DOUBLE_TAGGED_FRAME => {
-                Ok(DoubleVlanHeader{
+                Ok(DoubleVlanHeader {
                     outer,
-                    inner: SingleVlanHeader::read(reader)?
+                    inner: SingleVlanHeader::read(reader)?,
                 })
-            },
+            }
             value => {
                 use crate::ReadError::*;
                 Err(VlanDoubleTaggingUnexpectedOuterTpid(value))
@@ -139,13 +132,32 @@ impl DoubleVlanHeader {
 
 ///A slice containing a single vlan header of a network package.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SingleVlanHeaderSlice<'a> {
-    slice: &'a [u8]
+pub struct SingleVlanHeaderSlice<T: AsRef<[u8]>> {
+    slice: T,
 }
 
-impl<'a> SingleVlanHeaderSlice<'a> {
-    ///Creates a vlan header slice from a slice.
-    pub fn from_slice(slice: &'a[u8]) -> Result<SingleVlanHeaderSlice<'a>, ReadError>{
+impl<'a> SingleVlanHeaderSlice<&'a [u8]> {
+    pub fn from_slice(slice: &'a [u8]) -> Result<(Self, &'a [u8]), ReadError> {
+        let length = Self::length(slice)?;
+        let (slice, extra) = slice.split_at(length);
+
+        Ok((SingleVlanHeaderSlice { slice }, extra))
+    }
+}
+
+impl<'a> SingleVlanHeaderSlice<&'a mut [u8]> {
+    pub fn from_slice(slice: &'a mut [u8]) -> Result<(Self, &'a mut [u8]), ReadError> {
+        let length = Self::length(slice)?;
+        let (slice, extra) = slice.split_at_mut(length);
+
+        Ok((SingleVlanHeaderSlice { slice }, extra))
+    }
+}
+
+impl<T: AsRef<[u8]>> SingleVlanHeaderSlice<T> {
+    pub fn length(buffer: T) -> Result<usize, ReadError> {
+        let slice = buffer.as_ref();
+
         //check length
         use crate::ReadError::*;
         if slice.len() < SingleVlanHeader::SERIALIZED_SIZE {
@@ -153,36 +165,34 @@ impl<'a> SingleVlanHeaderSlice<'a> {
         }
 
         //all done
-        Ok(SingleVlanHeaderSlice::<'a> {
-            slice: &slice[..SingleVlanHeader::SERIALIZED_SIZE]
-        })
+        Ok(SingleVlanHeader::SERIALIZED_SIZE)
     }
 
     ///Returns the slice containing the single vlan header
     #[inline]
-    pub fn slice(&self) -> &'a [u8] {
-        self.slice
+    pub fn slice(&self) -> &[u8] {
+        self.slice.as_ref()
     }
 
     ///Read the "priority_code_point" field from the slice. This is a 3 bit number which refers to the IEEE 802.1p class of service and maps to the frame priority level.
     pub fn priority_code_point(&self) -> u8 {
-        self.slice[0] >> 5
+        self.slice.as_ref()[0] >> 5
     }
 
     ///Read the "drop_eligible_indicator" flag from the slice. Indicates that the frame may be dropped under the presence of congestion.
     pub fn drop_eligible_indicator(&self) -> bool {
-        0 != (self.slice[0] & 0x10)
+        0 != (self.slice.as_ref()[0] & 0x10)
     }
 
     ///Reads the 12 bits "vland identifier" field from the slice.
     pub fn vlan_identifier(&self) -> u16 {
-        let buffer = [self.slice[0] & 0xf, self.slice[1]];
+        let buffer = [self.slice.as_ref()[0] & 0xf, self.slice.as_ref()[1]];
         BigEndian::read_u16(&buffer)
     }
 
     ///Read the "Tag protocol identifier" field from the slice. Refer to the "EtherType" for a list of possible supported values.
     pub fn ether_type(&self) -> u16 {
-        BigEndian::read_u16(&self.slice[2..4])
+        BigEndian::read_u16(&self.slice.as_ref()[2..4])
     }
 
     ///Decode all the fields and copy the results to a SingleVlanHeader struct
@@ -198,13 +208,15 @@ impl<'a> SingleVlanHeaderSlice<'a> {
 
 ///A slice containing an double vlan header of a network package.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DoubleVlanHeaderSlice<'a> {
-    slice: &'a [u8]
+pub struct DoubleVlanHeaderSlice<T: AsRef<[u8]>> {
+    slice: T,
 }
 
-impl<'a> DoubleVlanHeaderSlice<'a> {
+impl<T: AsRef<[u8]>> DoubleVlanHeaderSlice<T> {
     ///Creates a double header slice from a slice.
-    pub fn from_slice(slice: &'a[u8]) -> Result<DoubleVlanHeaderSlice<'a>, ReadError>{
+    pub fn from_slice(buffer: T) -> Result<Self, ReadError> {
+        let slice = buffer.as_ref();
+
         //check length
         use crate::ReadError::*;
         if slice.len() < DoubleVlanHeader::SERIALIZED_SIZE {
@@ -226,7 +238,7 @@ impl<'a> DoubleVlanHeaderSlice<'a> {
             VLAN_TAGGED_FRAME | PROVIDER_BRIDGING | VLAN_DOUBLE_TAGGED_FRAME => {
                 //all done
                 Ok(result)
-            },
+            }
             value => {
                 Err(VlanDoubleTaggingUnexpectedOuterTpid(value))
             }
@@ -235,21 +247,21 @@ impl<'a> DoubleVlanHeaderSlice<'a> {
 
     ///Returns the slice containing the double vlan header
     #[inline]
-    pub fn slice(&self) -> &'a [u8] {
-        self.slice
+    pub fn slice(&self) -> &[u8] {
+        self.slice.as_ref()
     }
 
     ///Returns a slice with the outer vlan header
-    pub fn outer(&self) -> SingleVlanHeaderSlice<'a> {
-        SingleVlanHeaderSlice::<'a> {
-            slice: &self.slice[..SingleVlanHeader::SERIALIZED_SIZE]
+    pub fn outer(&self) -> SingleVlanHeaderSlice<&[u8]> {
+        SingleVlanHeaderSlice {
+            slice: &self.slice.as_ref()[..SingleVlanHeader::SERIALIZED_SIZE]
         }
     }
 
     ///Returns a slice with the inner vlan header.
-    pub fn inner(&self) -> SingleVlanHeaderSlice<'a> {
-        SingleVlanHeaderSlice::<'a> {
-            slice: &self.slice[SingleVlanHeader::SERIALIZED_SIZE..SingleVlanHeader::SERIALIZED_SIZE*2]
+    pub fn inner(&self) -> SingleVlanHeaderSlice<&[u8]> {
+        SingleVlanHeaderSlice {
+            slice: &self.slice.as_ref()[SingleVlanHeader::SERIALIZED_SIZE..SingleVlanHeader::SERIALIZED_SIZE * 2]
         }
     }
 
@@ -257,7 +269,7 @@ impl<'a> DoubleVlanHeaderSlice<'a> {
     pub fn to_header(&self) -> DoubleVlanHeader {
         DoubleVlanHeader {
             outer: self.outer().to_header(),
-            inner: self.inner().to_header()
+            inner: self.inner().to_header(),
         }
     }
 }

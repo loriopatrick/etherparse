@@ -11,26 +11,6 @@ pub enum IpHeader {
 }
 
 impl IpHeader {
-    ///Read an IpvHeader from a slice and return the header & unused parts of the slice.
-    pub fn read_from_slice(slice: &[u8]) -> Result<(IpHeader, &[u8]), ReadError> {
-        use crate::ReadError::*;
-        if slice.is_empty() {
-            Err(UnexpectedEndOfSlice(1))
-        } else {
-            match slice[0] >> 4 {
-                4 => {
-                    Ipv4Header::read_from_slice(slice)
-                    .map(|value| (IpHeader::Version4(value.0), value.1))
-                },
-                6 => {
-                    Ipv6Header::read_from_slice(slice)
-                    .map(|value| (IpHeader::Version6(value.0), value.1))
-                },
-                version => Err(ReadError::IpUnsupportedVersion(version))
-            }
-        }
-    }
-
     ///Reads an IP (v4 or v6) header from the current position.
     pub fn read<T: io::Read + io::Seek + Sized>(reader: &mut T) -> Result<IpHeader, ReadError> {
         let value = reader.read_u8()?;

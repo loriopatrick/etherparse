@@ -2,19 +2,19 @@ use super::*;
 
 ///A slice containing the link layer header (currently only Ethernet II is supported).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LinkSlice<'a> {
+pub enum LinkSlice<T: AsRef<[u8]>> {
     ///A slice containing an Ethernet II header.
-    Ethernet2(Ethernet2HeaderSlice<'a>)
+    Ethernet2(Ethernet2HeaderSlice<T>)
 }
 
 ///A slice containing a single or double vlan header.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum VlanSlice<'a> {
-    SingleVlan(SingleVlanHeaderSlice<'a>),
-    DoubleVlan(DoubleVlanHeaderSlice<'a>),
+pub enum VlanSlice<T: AsRef<T>> {
+    SingleVlan(SingleVlanHeaderSlice<T>),
+    DoubleVlan(DoubleVlanHeaderSlice<T>),
 }
 
-impl<'a> VlanSlice<'a> {
+impl<T: AsRef<[u8]>> VlanSlice<T> {
     ///Decode all the fields and copy the results to a VlanHeader struct
     pub fn to_header(&self) -> VlanHeader {
         use crate::VlanHeader::*;
@@ -27,27 +27,27 @@ impl<'a> VlanSlice<'a> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InternetSlice<'a> {
-    Ipv4(Ipv4HeaderSlice<'a>),
+pub enum InternetSlice<T: AsRef<[u8]>> {
+    Ipv4(Ipv4HeaderSlice<T>),
     ///First element is the Ipv6 header slice and second one are the Ipv6 extensions headers filled in order from 0 to the length of the array.
-    Ipv6(Ipv6HeaderSlice<'a>, [Option<(u8, Ipv6ExtensionHeaderSlice<'a>)>; IPV6_MAX_NUM_HEADER_EXTENSIONS]),
+    Ipv6(Ipv6HeaderSlice<T>, [Option<(u8, Ipv6ExtensionHeaderSlice<T>)>; IPV6_MAX_NUM_HEADER_EXTENSIONS]),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TransportSlice<'a> {
+pub enum TransportSlice<T: AsRef<[u8]>> {
     ///A slice containing an UDP header.
-    Udp(UdpHeaderSlice<'a>),
+    Udp(UdpHeaderSlice<T>),
     ///A slice containing a TCP header.
-    Tcp(TcpHeaderSlice<'a>)
+    Tcp(TcpHeaderSlice<T>)
 }
 
 ///A sliced into its component headers. Everything that could not be parsed is stored in a slice in the field "payload".
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SlicedPacket<'a> {
-    pub link: Option<LinkSlice<'a>>,
-    pub vlan: Option<VlanSlice<'a>>,
-    pub ip: Option<InternetSlice<'a>>,
-    pub transport: Option<TransportSlice<'a>>,
+pub struct SlicedPacket<T: AsRef<[u8]>> {
+    pub link: Option<LinkSlice<T>>,
+    pub vlan: Option<VlanSlice<T>>,
+    pub ip: Option<InternetSlice<T>>,
+    pub transport: Option<TransportSlice<T>>,
     /// The payload field points to the rest of the packet that could not be parsed by etherparse.
     ///
     /// Depending on what other fields contain a "Some" values the payload contains the corresponding 
@@ -56,7 +56,7 @@ pub struct SlicedPacket<'a> {
     /// For example if transport field contains Some(Udp(_)) then the payload field points to the udp payload.
     /// On the other hand if the transport field contains None then the payload contains the payload of
     /// next field containing a Some value (in order of transport, ip, vlan, link).
-    pub payload: &'a [u8]
+    pub payload: T
 }
 
 const ETH_IPV4: u16 = EtherType::Ipv4 as u16;
@@ -68,7 +68,7 @@ const ETH_VLAN_DOUBLE: u16 = EtherType::VlanDoubleTaggedFrame as u16;
 const IP_UDP: u8 = IpTrafficClass::Udp as u8;
 const IP_TCP: u8 = IpTrafficClass::Tcp as u8;
 
-impl<'a> SlicedPacket<'a> {
+impl<T: AsRef<[u8]>> SlicedPacket<T> {
     /// Seperates a network packet slice into different slices containing the headers from the ethernet header downwards. 
     ///
     /// The result is returned as a SlicerPacket struct. This function assumes the given data starts 
@@ -104,7 +104,7 @@ impl<'a> SlicedPacket<'a> {
     ///     }
     /// }
     /// ```
-    pub fn from_ethernet(data: &'a [u8]) -> Result<SlicedPacket, ReadError> {
+    pub fn from_ethernet(data: T) -> Result<SlicedPacket<T>, ReadError> {
         CursorSlice::new(data).slice_ethernet2()
     }
 
@@ -144,21 +144,20 @@ impl<'a> SlicedPacket<'a> {
     ///     }
     /// }
     /// ```
-    pub fn from_ip(data: &'a [u8]) -> Result<SlicedPacket, ReadError> {
+    pub fn from_ip(data: T) -> Result<SlicedPacket<T>, ReadError> {
         CursorSlice::new(data).slice_ip()
     }
 }
 
 ///Helper class for slicing packets
-struct CursorSlice<'a> {
-    pub slice: &'a [u8],
+struct CursorSlice<T: AsRef<[u8]>> {
+    pub slice: T,
     pub offset: usize,
-    pub result: SlicedPacket<'a>
+    pub result: SlicedPacket<T>
 }
 
-impl<'a> CursorSlice<'a> {
-
-    pub fn new(slice: &'a [u8]) -> CursorSlice<'a> {
+impl<T: AsRef<[u8]>> CursorSlice<T> {
+    pub fn new(slice: T) -> Self {
         CursorSlice {
             offset: 0,
             slice,

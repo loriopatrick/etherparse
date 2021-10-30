@@ -4,6 +4,7 @@ use std::net::Ipv4Addr;
 use std::fmt::{Debug, Formatter};
 
 extern crate byteorder;
+
 use self::byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
 
 ///IPv4 header without options.
@@ -24,23 +25,23 @@ pub struct Ipv4Header {
     pub time_to_live: u8,
     pub protocol: u8,
     pub header_checksum: u16,
-    pub source: [u8;4],
-    pub destination: [u8;4],
+    pub source: [u8; 4],
+    pub destination: [u8; 4],
     ///Length of the options in the options_buffer in bytes.
     options_len: u8,
-    options_buffer: [u8;40]
+    options_buffer: [u8; 40],
 }
 
 impl SerializedSize for Ipv4Header {
     ///Size of the header itself (without options) in bytes.
-    const SERIALIZED_SIZE:usize = 20;
+    const SERIALIZED_SIZE: usize = 20;
 }
 
-const IPV4_MAX_OPTIONS_LENGTH: usize = 10*4;
+const IPV4_MAX_OPTIONS_LENGTH: usize = 10 * 4;
 
 impl Ipv4Header {
     ///Constructs an Ipv4Header with standard values for non specified values.
-    pub fn new(payload_len: u16, time_to_live: u8, protocol: IpTrafficClass, source: [u8;4], destination: [u8;4]) -> Ipv4Header {
+    pub fn new(payload_len: u16, time_to_live: u8, protocol: IpTrafficClass, source: [u8; 4], destination: [u8; 4]) -> Ipv4Header {
         Ipv4Header {
             differentiated_services_code_point: 0,
             explicit_congestion_notification: 0,
@@ -55,7 +56,7 @@ impl Ipv4Header {
             source,
             destination,
             options_len: 0,
-            options_buffer: [0;40]
+            options_buffer: [0; 40],
         }
     }
 
@@ -63,7 +64,7 @@ impl Ipv4Header {
     ///
     ///The minimum allowed length of a header is 5 (= 20 bytes) and the maximum length is 15 (= 60 bytes).
     pub fn ihl(&self) -> u8 {
-        (self.options_len/4) + 5
+        (self.options_len / 4) + 5
     }
 
     ///Returns a slice to the options part of the header (empty if no options are present).
@@ -106,7 +107,7 @@ impl Ipv4Header {
 
         //check that the options length is within bounds
         if (IPV4_MAX_OPTIONS_LENGTH < data.len()) ||
-           (0 != data.len() % 4)
+            (0 != data.len() % 4)
         {
             Err(Ipv4OptionsLengthBad(data.len()))
         } else {
@@ -117,16 +118,6 @@ impl Ipv4Header {
             self.options_len = data.len() as u8;
             Ok(())
         }
-    }
-
-    ///Read an Ipv4Header from a slice and return the header & unused parts of the slice.
-    pub fn read_from_slice(slice: &[u8]) -> Result<(Ipv4Header, &[u8]), ReadError> {
-        let header = Ipv4HeaderSlice::from_slice(slice)?.to_header();
-        let rest = &slice[header.header_len()..];
-        Ok((
-            header,
-            rest
-        ))
     }
 
     ///Reads an IPv4 header from the current position.
@@ -150,7 +141,7 @@ impl Ipv4Header {
             let value = reader.read_u8()?;
             (value >> 2, value & 0x3)
         };
-        let header_length = u16::from(ihl)*4;
+        let header_length = u16::from(ihl) * 4;
         let total_length = reader.read_u16::<BigEndian>()?;
         if total_length < header_length {
             use crate::ReadError::*;
@@ -158,17 +149,17 @@ impl Ipv4Header {
         }
         let identification = reader.read_u16::<BigEndian>()?;
         let (dont_fragment, more_fragments, fragments_offset) = {
-            let mut values: [u8; 2] = [0;2];
+            let mut values: [u8; 2] = [0; 2];
             reader.read_exact(&mut values)?;
             (0 != (values[0] & 0x40),
              0 != (values[0] & 0x20),
              {
-                let buf = [values[0] & 0x1f, values[1]];
-                let mut cursor = io::Cursor::new(&buf);
-                cursor.read_u16::<BigEndian>()?
+                 let buf = [values[0] & 0x1f, values[1]];
+                 let mut cursor = io::Cursor::new(&buf);
+                 cursor.read_u16::<BigEndian>()?
              })
         };
-        Ok(Ipv4Header{
+        Ok(Ipv4Header {
             differentiated_services_code_point: dscp,
             explicit_congestion_notification: ecn,
             payload_len: total_length - header_length,
@@ -180,20 +171,20 @@ impl Ipv4Header {
             protocol: reader.read_u8()?,
             header_checksum: reader.read_u16::<BigEndian>()?,
             source: {
-                let mut values: [u8;4] = [0;4];
+                let mut values: [u8; 4] = [0; 4];
                 reader.read_exact(&mut values)?;
                 values
             },
             destination: {
-                let mut values: [u8;4] = [0;4];
+                let mut values: [u8; 4] = [0; 4];
                 reader.read_exact(&mut values)?;
                 values
             },
-            options_len: (ihl - 5)*4,
+            options_len: (ihl - 5) * 4,
             options_buffer: {
-                let mut values: [u8;40] = [0;40];
-                
-                let options_len = usize::from(ihl - 5)*4;
+                let mut values: [u8; 40] = [0; 40];
+
+                let options_len = usize::from(ihl - 5) * 4;
                 if options_len > 0 {
                     reader.read_exact(&mut values[..options_len])?;
                 }
@@ -211,7 +202,7 @@ impl Ipv4Header {
     /// * fragments_offset is not greater then 0x1fff
     pub fn check_ranges(&self) -> Result<(), ValueError> {
         use crate::ErrorField::*;
-        
+
         //check ranges
         max_check_u8(self.differentiated_services_code_point, 0x3f, Ipv4Dscp)?;
         max_check_u8(self.explicit_congestion_notification, 0x3, Ipv4Ecn)?;
@@ -253,7 +244,7 @@ impl Ipv4Header {
 
         //flags & fragmentation offset
         {
-            let mut buf: [u8;2] = [0;2];
+            let mut buf: [u8; 2] = [0; 2];
             BigEndian::write_u16(&mut buf, self.fragments_offset);
             let flags = {
                 let mut result = 0;
@@ -267,7 +258,7 @@ impl Ipv4Header {
             };
             write.write_u8(
                 flags |
-                (buf[0] & 0x1f),
+                    (buf[0] & 0x1f),
             )?;
             write.write_u8(
                 buf[1]
@@ -302,13 +293,13 @@ impl Ipv4Header {
     fn calc_header_checksum_unchecked(&self) -> u16 {
         //version & header_length
         let mut sum: u32 = [
-            BigEndian::read_u16(&[ (4 << 4) | self.ihl(),
-                                (self.differentiated_services_code_point << 2) | self.explicit_congestion_notification ]),
+            BigEndian::read_u16(&[(4 << 4) | self.ihl(),
+                (self.differentiated_services_code_point << 2) | self.explicit_congestion_notification]),
             self.total_len(),
             self.identification,
             //flags & fragmentation offset
             {
-                let mut buf: [u8;2] = [0;2];
+                let mut buf: [u8; 2] = [0; 2];
                 BigEndian::write_u16(&mut buf, self.fragments_offset);
                 let flags = {
                     let mut result = 0;
@@ -330,12 +321,12 @@ impl Ipv4Header {
             BigEndian::read_u16(&self.destination[2..4])
         ].iter().map(|x| u32::from(*x)).sum();
         let options = self.options();
-        for i in 0..(options.len()/2) {
-            sum += u32::from( BigEndian::read_u16(&options[i*2..i*2 + 2]) );
+        for i in 0..(options.len() / 2) {
+            sum += u32::from(BigEndian::read_u16(&options[i * 2..i * 2 + 2]));
         }
 
         let carry_add = (sum & 0xffff) + (sum >> 16);
-        !( ((carry_add & 0xffff) + (carry_add >> 16)) as u16 )
+        !(((carry_add & 0xffff) + (carry_add >> 16)) as u16)
     }
 }
 
@@ -359,50 +350,50 @@ impl Default for Ipv4Header {
             time_to_live: 0,
             protocol: 0,
             header_checksum: 0,
-            source: [0;4],
-            destination: [0;4],
+            source: [0; 4],
+            destination: [0; 4],
             options_len: 0,
-            options_buffer: [0;40]
+            options_buffer: [0; 40],
         }
     }
 }
 
 impl Debug for Ipv4Header {
     fn fmt(&self, fotmatter: &mut Formatter) -> Result<(), std::fmt::Error> {
-        write!(fotmatter, "Ipv4Header {{ ihl: {}, differentiated_services_code_point: {}, explicit_congestion_notification: {}, payload_len: {}, identification: {}, dont_fragment: {}, more_fragments: {}, fragments_offset: {}, time_to_live: {}, protocol: {}, header_checksum: {}, source: {:?}, destination: {:?}, options: {:?} }}", 
-            self.ihl(),
-            self.differentiated_services_code_point,
-            self.explicit_congestion_notification,
-            self.payload_len,
-            self.identification,
-            self.dont_fragment,
-            self.more_fragments,
-            self.fragments_offset,
-            self.time_to_live,
-            self.protocol,
-            self.header_checksum,
-            self.source,
-            self.destination,
-            self.options())
+        write!(fotmatter, "Ipv4Header {{ ihl: {}, differentiated_services_code_point: {}, explicit_congestion_notification: {}, payload_len: {}, identification: {}, dont_fragment: {}, more_fragments: {}, fragments_offset: {}, time_to_live: {}, protocol: {}, header_checksum: {}, source: {:?}, destination: {:?}, options: {:?} }}",
+               self.ihl(),
+               self.differentiated_services_code_point,
+               self.explicit_congestion_notification,
+               self.payload_len,
+               self.identification,
+               self.dont_fragment,
+               self.more_fragments,
+               self.fragments_offset,
+               self.time_to_live,
+               self.protocol,
+               self.header_checksum,
+               self.source,
+               self.destination,
+               self.options())
     }
 }
 
 impl std::cmp::PartialEq for Ipv4Header {
     fn eq(&self, other: &Ipv4Header) -> bool {
         self.differentiated_services_code_point == other.differentiated_services_code_point &&
-        self.explicit_congestion_notification == other.explicit_congestion_notification &&
-        self.payload_len == other.payload_len &&
-        self.identification == other.identification &&
-        self.dont_fragment == other.dont_fragment &&
-        self.more_fragments == other.more_fragments &&
-        self.fragments_offset == other.fragments_offset &&
-        self.time_to_live == other.time_to_live &&
-        self.protocol == other.protocol &&
-        self.header_checksum == other.header_checksum &&
-        self.source == other.source &&
-        self.destination == other.destination &&
-        self.options_len == other.options_len &&
-        self.options() == other.options()
+            self.explicit_congestion_notification == other.explicit_congestion_notification &&
+            self.payload_len == other.payload_len &&
+            self.identification == other.identification &&
+            self.dont_fragment == other.dont_fragment &&
+            self.more_fragments == other.more_fragments &&
+            self.fragments_offset == other.fragments_offset &&
+            self.time_to_live == other.time_to_live &&
+            self.protocol == other.protocol &&
+            self.header_checksum == other.header_checksum &&
+            self.source == other.source &&
+            self.destination == other.destination &&
+            self.options_len == other.options_len &&
+            self.options() == other.options()
     }
 }
 
@@ -410,14 +401,29 @@ impl std::cmp::Eq for Ipv4Header {}
 
 ///A slice containing an ipv4 header of a network package.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Ipv4HeaderSlice<'a> {
-    slice: &'a [u8]
+pub struct Ipv4HeaderSlice<T: AsRef<[u8]>> {
+    slice: T,
 }
 
-impl<'a> Ipv4HeaderSlice<'a> {
+impl<'a> Ipv4HeaderSlice<&'a [u8]> {
+    pub fn from_slice(buffer: &'a [u8]) -> Result<(Ipv4HeaderSlice<&'a [u8]>, &'a [u8]), ReadError> {
+        let split = Self::read_length(buffer)?;
+        let (header, rest) = buffer.split_at(split);
+        Ok((Ipv4HeaderSlice { slice: header }, rest))
+    }
+}
 
-    ///Creates a slice containing an ipv4 header (including header options).
-    pub fn from_slice(slice: &'a[u8]) -> Result<Ipv4HeaderSlice<'a>, ReadError> {
+impl<'a> Ipv4HeaderSlice<&'a mut [u8]> {
+    pub fn from_slice(slice: &'a mut [u8]) -> Result<(Ipv4HeaderSlice<&'a mut [u8]>, &'a mut [u8]), ReadError> {
+        let split = Ipv4HeaderSlice::read_length(slice.as_ref())?;
+        let (header, rest) = slice.split_at_mut(split);
+        Ok((Ipv4HeaderSlice { slice: header }, rest))
+    }
+}
+
+impl<T: AsRef<[u8]>> Ipv4HeaderSlice<T> {
+    fn read_length(buffer: T) -> Result<usize, ReadError> {
+        let slice = buffer.as_ref();
 
         //check length
         use crate::ReadError::*;
@@ -443,7 +449,7 @@ impl<'a> Ipv4HeaderSlice<'a> {
         }
 
         //check that the slice contains enough data for the entire header + options
-        let header_length = (usize::from(ihl))*4;
+        let header_length = (usize::from(ihl)) * 4;
         if slice.len() < header_length {
             return Err(UnexpectedEndOfSlice(header_length));
         }
@@ -451,90 +457,87 @@ impl<'a> Ipv4HeaderSlice<'a> {
         //check the total_length can contain the header
         let total_length = BigEndian::read_u16(&slice[2..4]);
         if total_length < header_length as u16 {
-            return Err(Ipv4TotalLengthTooSmall(total_length))
+            return Err(Ipv4TotalLengthTooSmall(total_length));
         }
 
-        //all good
-        Ok(Ipv4HeaderSlice {
-            slice: &slice[..header_length]
-        })
+        Ok(header_length)
     }
 
     ///Returns the slice containing the ipv4 header
     #[inline]
-    pub fn slice(&self) -> &'a [u8] {
-        self.slice
+    pub fn slice(&self) -> &[u8] {
+        self.slice.as_ref()
     }
 
     ///Read the "version" field of the IPv4 header (should be 4).
     pub fn version(&self) -> u8 {
-        self.slice[0] >> 4
+        self.slice.as_ref()[0] >> 4
     }
 
     ///Read the "ip header length" (length of the ipv4 header + options in multiples of 4 bytes).
     pub fn ihl(&self) -> u8 {
-        self.slice[0] & 0xf
+        self.slice.as_ref()[0] & 0xf
     }
 
     ///Read the "differentiated_services_code_point" from the slice.
     pub fn dcp(&self) -> u8 {
-        self.slice[1] >> 2
+        self.slice.as_ref()[1] >> 2
     }
 
     ///Read the "explicit_congestion_notification" from the slice.
     pub fn ecn(&self) -> u8 {
-        self.slice[1] & 0x3
+        self.slice.as_ref()[1] & 0x3
     }
 
     ///Read the "total length" from the slice (total length of ip header + payload).
     pub fn total_len(&self) -> u16 {
-        BigEndian::read_u16(&self.slice[2..4])
+        BigEndian::read_u16(&self.slice.as_ref()[2..4])
     }
 
     ///Determine the payload length based on the ihl & total_length field of the header.
     pub fn payload_len(&self) -> u16 {
-        self.total_len() - u16::from(self.ihl())*4
+        self.total_len() - u16::from(self.ihl()) * 4
     }
 
     ///Read the "identification" field from the slice.
     pub fn identification(&self) -> u16 {
-        BigEndian::read_u16(&self.slice[4..6])
+        BigEndian::read_u16(&self.slice.as_ref()[4..6])
     }
 
     ///Read the "dont fragment" flag from the slice.
     pub fn dont_fragment(&self) -> bool {
-        0 != (self.slice[6] & 0x40)
+        0 != (self.slice.as_ref()[6] & 0x40)
     }
 
     ///Read the "more fragments" flag from the slice.
     pub fn more_fragments(&self) -> bool {
-        0 != (self.slice[6] & 0x20)
+        0 != (self.slice.as_ref()[6] & 0x20)
     }
 
     ///Read the "fragment_offset" field from the slice.
     pub fn fragments_offset(&self) -> u16 {
-        let buf = [self.slice[6] & 0x1f, self.slice[7]];
+        let buf = [self.slice.as_ref()[6] & 0x1f, self.slice.as_ref()[7]];
         BigEndian::read_u16(&buf[..])
     }
 
     ///Read the "time_to_live" field from the slice.
     pub fn ttl(&self) -> u8 {
-        self.slice[8]
+        self.slice.as_ref()[8]
     }
 
     ///Read the "protocol" field from the slice.
     pub fn protocol(&self) -> u8 {
-        self.slice[9]
+        self.slice.as_ref()[9]
     }
 
     ///Read the "header checksum" field from the slice.
     pub fn header_checksum(&self) -> u16 {
-        BigEndian::read_u16(&self.slice[10..12])
+        BigEndian::read_u16(&self.slice.as_ref()[10..12])
     }
-    
+
     ///Returns a slice containing the ipv4 source address.
-    pub fn source(&self) -> &'a [u8] {
-        &self.slice[12..16]
+    pub fn source(&self) -> &[u8] {
+        &self.slice.as_ref()[12..16]
     }
 
     ///Return the ipv4 source address as an std::net::Ipv4Addr
@@ -545,8 +548,8 @@ impl<'a> Ipv4HeaderSlice<'a> {
     }
 
     ///Returns a slice containing the ipv4 source address.
-    pub fn destination(&self) -> &'a [u8] {
-        &self.slice[16..20]
+    pub fn destination(&self) -> &[u8] {
+        &self.slice.as_ref()[16..20]
     }
 
     ///Return the ipv4 destination address as an std::net::Ipv4Addr
@@ -557,8 +560,8 @@ impl<'a> Ipv4HeaderSlice<'a> {
     }
 
     ///Returns a slice containing the ipv4 header options (empty when there are no options).
-    pub fn options(&self) -> &'a [u8] {
-        &self.slice[20..]
+    pub fn options(&self) -> &[u8] {
+        &self.slice.as_ref()[20..]
     }
 
     ///Decode all the fields and copy the results to a Ipv4Header struct
@@ -587,10 +590,140 @@ impl<'a> Ipv4HeaderSlice<'a> {
             },
             options_len: options.len() as u8,
             options_buffer: {
-                let mut result: [u8;40] = [0;40];
+                let mut result: [u8; 40] = [0; 40];
                 result[..options.len()].copy_from_slice(options);
                 result
-            }
+            },
         }
     }
 }
+
+// impl<T: AsRef<[u8]> + AsMut<[u8]>> Ipv4HeaderSlice<T> {
+//     ///Read the "version" field of the IPv4 header (should be 4).
+//     pub fn version(&self) -> u8 {
+//         self.slice.as_ref()[0] >> 4
+//     }
+//
+//     ///Read the "ip header length" (length of the ipv4 header + options in multiples of 4 bytes).
+//     pub fn ihl(&self) -> u8 {
+//         self.slice.as_ref()[0] & 0xf
+//     }
+//
+//     ///Read the "differentiated_services_code_point" from the slice.
+//     pub fn dcp(&self) -> u8 {
+//         self.slice.as_ref()[1] >> 2
+//     }
+//
+//     ///Read the "explicit_congestion_notification" from the slice.
+//     pub fn ecn(&self) -> u8 {
+//         self.slice.as_ref()[1] & 0x3
+//     }
+//
+//     ///Read the "total length" from the slice (total length of ip header + payload).
+//     pub fn total_len(&self) -> u16 {
+//         BigEndian::read_u16(&self.slice.as_ref()[2..4])
+//     }
+//
+//     ///Determine the payload length based on the ihl & total_length field of the header.
+//     pub fn payload_len(&self) -> u16 {
+//         self.total_len() - u16::from(self.ihl()) * 4
+//     }
+//
+//     ///Read the "identification" field from the slice.
+//     pub fn identification(&self) -> u16 {
+//         BigEndian::read_u16(&self.slice.as_ref()[4..6])
+//     }
+//
+//     ///Read the "dont fragment" flag from the slice.
+//     pub fn dont_fragment(&self) -> bool {
+//         0 != (self.slice.as_ref()[6] & 0x40)
+//     }
+//
+//     ///Read the "more fragments" flag from the slice.
+//     pub fn more_fragments(&self) -> bool {
+//         0 != (self.slice.as_ref()[6] & 0x20)
+//     }
+//
+//     ///Read the "fragment_offset" field from the slice.
+//     pub fn fragments_offset(&self) -> u16 {
+//         let buf = [self.slice.as_ref()[6] & 0x1f, self.slice.as_ref()[7]];
+//         BigEndian::read_u16(&buf[..])
+//     }
+//
+//     ///Read the "time_to_live" field from the slice.
+//     pub fn ttl(&self) -> u8 {
+//         self.slice.as_ref()[8]
+//     }
+//
+//     ///Read the "protocol" field from the slice.
+//     pub fn protocol(&self) -> u8 {
+//         self.slice.as_ref()[9]
+//     }
+//
+//     ///Read the "header checksum" field from the slice.
+//     pub fn header_checksum(&self) -> u16 {
+//         BigEndian::read_u16(&self.slice.as_ref()[10..12])
+//     }
+//
+//     ///Returns a slice containing the ipv4 source address.
+//     pub fn source(&self) -> &[u8] {
+//         &self.slice.as_ref()[12..16]
+//     }
+//
+//     ///Return the ipv4 source address as an std::net::Ipv4Addr
+//     pub fn source_addr(&self) -> Ipv4Addr {
+//         let mut result: [u8; 4] = Default::default();
+//         result.copy_from_slice(self.source());
+//         Ipv4Addr::from(result)
+//     }
+//
+//     ///Returns a slice containing the ipv4 source address.
+//     pub fn destination(&self) -> &[u8] {
+//         &self.slice.as_ref()[16..20]
+//     }
+//
+//     ///Return the ipv4 destination address as an std::net::Ipv4Addr
+//     pub fn destination_addr(&self) -> Ipv4Addr {
+//         let mut result: [u8; 4] = Default::default();
+//         result.copy_from_slice(self.destination());
+//         Ipv4Addr::from(result)
+//     }
+//
+//     ///Returns a slice containing the ipv4 header options (empty when there are no options).
+//     pub fn options(&self) -> &[u8] {
+//         &self.slice.as_ref()[20..]
+//     }
+//
+//     ///Decode all the fields and copy the results to a Ipv4Header struct
+//     pub fn to_header(&self) -> Ipv4Header {
+//         let options = self.options();
+//         Ipv4Header {
+//             differentiated_services_code_point: self.dcp(),
+//             explicit_congestion_notification: self.ecn(),
+//             payload_len: self.payload_len(),
+//             identification: self.identification(),
+//             dont_fragment: self.dont_fragment(),
+//             more_fragments: self.more_fragments(),
+//             fragments_offset: self.fragments_offset(),
+//             time_to_live: self.ttl(),
+//             protocol: self.protocol(),
+//             header_checksum: self.header_checksum(),
+//             source: {
+//                 let mut result: [u8; 4] = Default::default();
+//                 result.copy_from_slice(self.source());
+//                 result
+//             },
+//             destination: {
+//                 let mut result: [u8; 4] = Default::default();
+//                 result.copy_from_slice(self.destination());
+//                 result
+//             },
+//             options_len: options.len() as u8,
+//             options_buffer: {
+//                 let mut result: [u8; 40] = [0; 40];
+//                 result[..options.len()].copy_from_slice(options);
+//                 result
+//             },
+//         }
+//     }
+// }

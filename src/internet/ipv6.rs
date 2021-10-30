@@ -29,15 +29,6 @@ impl SerializedSize for Ipv6Header {
 }
 
 impl Ipv6Header {
-
-    ///Read an Ipv6Header from a slice and return the header & unused parts of the slice.
-    pub fn read_from_slice(slice: &[u8]) -> Result<(Ipv6Header, &[u8]), ReadError> {
-        Ok((
-            Ipv6HeaderSlice::from_slice(slice)?.to_header(), 
-            &slice[Ipv6Header::SERIALIZED_SIZE..]
-        ))
-    }
-
     ///Reads an IPv6 header from the current position.
     pub fn read<T: io::Read + io::Seek + Sized>(reader: &mut T) -> Result<Ipv6Header, ReadError> {
         let value = reader.read_u8()?;
@@ -236,14 +227,33 @@ impl Ipv6Header {
 
 ///A slice containing an ipv6 header of a network package.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Ipv6HeaderSlice<'a> {
-    slice: &'a [u8]
+pub struct Ipv6HeaderSlice<T: AsRef<[u8]>> {
+    slice: T
 }
 
-impl<'a> Ipv6HeaderSlice<'a, > {
+impl<'a> Ipv6HeaderSlice<&'a [u8]> {
+    ///Creates a slice containing an ipv6 header (without header extensions).
+    pub fn from_slice(slice: &'a [u8]) -> Result<(Self, &'a [u8]), ReadError> {
+        let len = Self::read_length(slice)?;
+        let (slice, extra) = slice.split_at(len);
+        Ok((Ipv6HeaderSlice { slice }, extra))
+    }
+}
+
+impl<'a> Ipv6HeaderSlice<&'a mut [u8]> {
+    ///Creates a slice containing an ipv6 header (without header extensions).
+    pub fn from_slice(slice: &'a mut [u8]) -> Result<(Self, &'a mut [u8]), ReadError> {
+        let len = Ipv6HeaderSlice::read_length(slice.as_ref())?;
+        let (slice, extra) = slice.split_at_mut(len);
+        Ok((Ipv6HeaderSlice { slice }, extra))
+    }
+}
+
+impl<T: AsRef<[u8]>> Ipv6HeaderSlice<T> {
 
     ///Creates a slice containing an ipv6 header (without header extensions).
-    pub fn from_slice(slice: &'a[u8]) -> Result<Ipv6HeaderSlice<'a>, ReadError> {
+    pub fn read_length(buffer: T) -> Result<usize, ReadError> {
+        let slice = buffer.as_ref();
 
         //check length
         use crate::ReadError::*;
@@ -260,50 +270,48 @@ impl<'a> Ipv6HeaderSlice<'a, > {
         }
 
         //all good
-        Ok(Ipv6HeaderSlice {
-            slice: &slice[..Ipv6Header::SERIALIZED_SIZE]
-        })
+        Ok(Ipv6Header::SERIALIZED_SIZE)
     }
 
     ///Returns the slice containing the ipv6 header
     #[inline]
-    pub fn slice(&self) -> &'a [u8] {
-        self.slice
+    pub fn slice(&self) -> &[u8] {
+        self.slice.as_ref()
     }
 
     ///Read the "version" field from the slice (should be 6).
     pub fn version(&self) -> u8 {
-        self.slice[0] >> 4
+        self.slice.as_ref()[0] >> 4
     }
 
     ///Read the "traffic class" field from the slice.
     pub fn traffic_class(&self) -> u8 {
-        (self.slice[0] << 4) | (self.slice[1] >> 4)
+        (self.slice.as_ref()[0] << 4) | (self.slice.as_ref()[1] >> 4)
     }
 
     ///Read the "flow label" field from the slice.
     pub fn flow_label(&self) -> u32 {
-        byteorder::BigEndian::read_u32(&[0, self.slice[1] & 0xf, self.slice[2], self.slice[3]])
+        byteorder::BigEndian::read_u32(&[0, self.slice.as_ref()[1] & 0xf, self.slice.as_ref()[2], self.slice.as_ref()[3]])
     }
 
     ///Read the "payload length" field from  the slice. The length should contain the length of all extension headers and payload.
     pub fn payload_length(&self) -> u16 {
-        byteorder::BigEndian::read_u16(&self.slice[4..6])
+        byteorder::BigEndian::read_u16(&self.slice.as_ref()[4..6])
     }
 
     ///Read the "next header" field from the slice. The next header value specifies what the next header or transport layer protocol is (see IpTrafficClass for a definitions of ids).
     pub fn next_header(&self) -> u8 {
-        self.slice[6]
+        self.slice.as_ref()[6]
     }
 
     ///Read the "hop limit" field from the slice. The hop limit specifies the number of hops the packet can take before it is discarded.
     pub fn hop_limit(&self) -> u8 {
-        self.slice[7]
+        self.slice.as_ref()[7]
     }
 
     ///Returns a slice containing the IPv6 source address.
-    pub fn source(&self) -> &'a[u8] {
-        &self.slice[8..8+16]
+    pub fn source(&self) -> &[u8] {
+        &self.slice.as_ref()[8..8+16]
     }
 
     ///Return the ipv6 source address as an std::net::Ipv6Addr
@@ -314,8 +322,8 @@ impl<'a> Ipv6HeaderSlice<'a, > {
     }
 
     ///Returns a slice containing the IPv6 destination address.
-    pub fn destination(&self) -> &'a[u8] {
-        &self.slice[24..24+16]
+    pub fn destination(&self) -> &[u8] {
+        &self.slice.as_ref()[24..24+16]
     }
 
     ///Return the ipv6 destination address as an std::net::Ipv6Addr
@@ -359,13 +367,32 @@ pub struct Ipv6ExtensionHeader {
 
 ///A slice containing an ipv6 extension header of a network package.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Ipv6ExtensionHeaderSlice<'a> {
-    slice: &'a [u8]
+pub struct Ipv6ExtensionHeaderSlice<T: AsRef<[u8]>> {
+    slice: T
 }
 
-impl<'a> Ipv6ExtensionHeaderSlice<'a> {
+impl<'a> Ipv6ExtensionHeaderSlice<&'a [u8]> {
     ///Creates a slice containing an ipv6 header extension.
-    pub fn from_slice(header_type: u8, slice: &'a[u8]) -> Result<Ipv6ExtensionHeaderSlice<'a>, ReadError> {
+    pub fn from_slice(header_type: u8, slice: &'a [u8]) -> Result<(Self, &'a [u8]), ReadError> {
+        let length = Self::read_length(header_type, slice)?;
+        let (slice, extra) = slice.split_at(length);
+        Ok((Ipv6ExtensionHeaderSlice { slice }, extra))
+    }
+}
+
+impl<'a> Ipv6ExtensionHeaderSlice<&'a mut [u8]> {
+    ///Creates a slice containing an ipv6 header extension.
+    pub fn from_slice(header_type: u8, slice: &'a mut [u8]) -> Result<(Self, &'a mut [u8]), ReadError> {
+        let length = Ipv6ExtensionHeaderSlice::read_length(header_type, slice.as_ref())?;
+        let (slice, extra) = slice.split_at_mut(length);
+        Ok((Ipv6ExtensionHeaderSlice { slice }, extra))
+    }
+}
+
+impl<T: AsRef<[u8]>> Ipv6ExtensionHeaderSlice<T> {
+    ///Creates a slice containing an ipv6 header extension.
+    pub fn read_length(header_type: u8, buffer: T) -> Result<usize, ReadError> {
+        let slice = buffer.as_ref();
 
         //check length
         use crate::ReadError::*;
@@ -387,19 +414,17 @@ impl<'a> Ipv6ExtensionHeaderSlice<'a> {
         }
 
         //all good
-        Ok(Ipv6ExtensionHeaderSlice {
-            slice: &slice[..len]
-        })
+        Ok(len)
     }
 
     ///Returns the slice containing the ipv6 extension header
     #[inline]
-    pub fn slice(&self) -> &'a [u8] {
-        self.slice
+    pub fn slice(&self) -> &[u8] {
+        self.slice.as_ref()
     }
 
     ///Returns the id of the next header (see IpTrafficClass for a definition of all ids).
     pub fn next_header(&self) -> u8 {
-        self.slice[0]
+        self.slice.as_ref()[0]
     }
 }
