@@ -100,7 +100,7 @@ pub struct Ethernet2HeaderSlice<T: AsRef<[u8]>> {
 impl<'a> Ethernet2HeaderSlice<&'a [u8]> {
     ///Creates a ethernet slice from an other slice.
     pub fn from_slice(buffer: &'a [u8]) -> Result<(Self, &'a [u8]), ReadError> {
-        let len = Self::length(buffer)?;
+        let len = Self::read_length(buffer)?;
         let (slice, extra) = buffer.split_at(len);
 
         Ok((Ethernet2HeaderSlice {
@@ -112,7 +112,7 @@ impl<'a> Ethernet2HeaderSlice<&'a [u8]> {
 impl<'a> Ethernet2HeaderSlice<&'a mut [u8]> {
     ///Creates a ethernet slice from an other slice.
     pub fn from_slice(buffer: &'a mut [u8]) -> Result<(Self, &'a mut [u8]), ReadError> {
-        let len = Self::length(buffer)?;
+        let len = Ethernet2HeaderSlice::read_length(buffer.as_ref())?;
         let (slice, extra) = buffer.split_at_mut(len);
 
         Ok((Ethernet2HeaderSlice {
@@ -122,7 +122,7 @@ impl<'a> Ethernet2HeaderSlice<&'a mut [u8]> {
 }
 
 impl<T: AsRef<[u8]>> Ethernet2HeaderSlice<T> {
-    pub fn length(buffer: T) -> Result<usize, ReadError> {
+    pub fn read_length(buffer: T) -> Result<usize, ReadError> {
         let slice = buffer.as_ref();
 
         //check length
