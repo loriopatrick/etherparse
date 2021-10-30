@@ -883,6 +883,95 @@ impl<T: AsRef<[u8]>> TcpHeaderSlice<T> {
     }
 }
 
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> TcpHeaderSlice<T> {
+    ///Read the destination port number.
+    pub fn set_source_port(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[..2], value)
+    }
+
+    ///Read the destination port number.
+    pub fn set_destination_port(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[2..4], value)
+    }
+
+    ///Read the sequence number of the first data octet in this segment (except when SYN is present).
+    ///
+    ///If SYN is present the sequence number is the initial sequence number (ISN)
+    ///and the first data octet is ISN+1.
+    ///[copied from RFC 793, page 16]
+    pub fn set_sequence_number(&mut self, value: u32) {
+        BigEndian::write_u32(&mut self.slice.as_mut()[4..8], value)
+    }
+
+    ///Reads the acknowledgment number.
+    ///
+    ///If the ACK control bit is set this field contains the value of the
+    ///next sequence number the sender of the segment is expecting to
+    ///receive.
+    ///
+    ///Once a connection is established this is always sent.
+    pub fn set_acknowledgment_number(&mut self, value: u32) {
+        BigEndian::write_u32(&mut self.slice.as_mut()[8..12], value)
+    }
+
+    ///Read the number of 32 bit words in the TCP Header.
+    ///
+    ///This indicates where the data begins.  The TCP header (even one including options) is an
+    ///integral number of 32 bits long.
+    pub fn set_data_offset(&mut self, value: u8) {
+        let current = self.slice.as_ref()[12] & 0b00001111;
+        self.slice.as_mut()[12] = current | (value << 4);
+    }
+
+    pub fn set_flags(&mut self, flags: u16) {
+        let current = self.slice.as_ref()[12] & 0b11111110;
+        self.slice.as_mut()[12] = current | ((flags >> 8) & 1) as u8;
+        self.slice.as_mut()[13] = flags as u8;
+    }
+
+    ///The number of data octets beginning with the one indicated in the
+    ///acknowledgment field which the sender of this segment is willing to
+    ///accept.
+    pub fn set_window_size(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[14..16], value)
+    }
+
+    ///Checksum (16 bit one's complement) of the pseudo ip header, this tcp header and the payload.
+    pub fn set_checksum(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[16..18], value)
+    }
+
+    ///This field communicates the current value of the urgent pointer as a
+    ///positive offset from the sequence number in this segment.
+    ///
+    ///The urgent pointer points to the sequence number of the octet following
+    ///the urgent data.  This field is only be interpreted in segments with
+    ///the URG control bit set.
+    pub fn set_urgent_pointer(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[18..20], value)
+    }
+
+    ///Options of the header
+    pub fn set_options_raw(&mut self, value: &[u8]) -> bool {
+        /* round up */
+        let length_words = (value.len() + 3) / 4;
+
+        if TCP_MAXIMUM_DATA_OFFSET as usize - 5 < length_words {
+            return false;
+        }
+
+        let new_data_offset_words = length_words + 5;
+        if new_data_offset_words * 4 < self.slice.as_ref().len() {
+            return false;
+        }
+
+        self.set_data_offset(new_data_offset_words as u8);
+        self.slice.as_mut()[TCP_MINIMUM_HEADER_SIZE..(TCP_MINIMUM_HEADER_SIZE + value.len())].copy_from_slice(value);
+        true
+    }
+}
+
 ///Different kinds of options that can be present in the options part of a tcp header.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TcpOptionElement {

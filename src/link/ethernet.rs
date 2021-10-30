@@ -160,3 +160,20 @@ impl<T: AsRef<[u8]>> Ethernet2HeaderSlice<T> {
         }
     }
 }
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> Ethernet2HeaderSlice<T> {
+    ///Read the destination mac address
+    pub fn set_destination(&mut self, address: &[u8]) {
+        self.slice.as_mut()[..6].copy_from_slice(address);
+    }
+
+    ///Read the source mac address
+    pub fn set_source(&mut self, address: &[u8]) {
+        self.slice.as_mut()[6..12].copy_from_slice(address)
+    }
+
+    ///Read the ether_type field of the header (in system native byte order).
+    pub fn set_ether_type(&mut self, ether_type: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[12..14], ether_type)
+    }
+}
