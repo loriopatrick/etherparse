@@ -565,6 +565,45 @@ impl<T: AsRef<[u8]>> Ipv4HeaderSlice<T> {
         &self.slice.as_ref()[20..]
     }
 
+    ///Calculate the header checksum under the assumtion that all value ranges in the header are correct
+    pub fn calc_header_checksum_unchecked(&self) -> u16 {
+        //version & header_length
+        let mut sum: u32 = [
+            BigEndian::read_u16(&[(4 << 4) | self.ihl(), (self.dcp() << 2) | self.ecn()]),
+            self.total_len(),
+            self.identification(),
+            //flags & fragmentation offset
+            {
+                let mut buf: [u8; 2] = [0; 2];
+                BigEndian::write_u16(&mut buf, self.fragments_offset());
+                let flags = {
+                    let mut result = 0;
+                    if self.dont_fragment() {
+                        result |= 64;
+                    }
+                    if self.more_fragments() {
+                        result |= 32;
+                    }
+                    result
+                };
+                BigEndian::read_u16(&[flags | (buf[0] & 0x1f), buf[1]])
+            },
+            BigEndian::read_u16(&[self.ttl(), self.protocol()]),
+            //skip checksum (for obvious reasons)
+            BigEndian::read_u16(&self.source()[0..2]),
+            BigEndian::read_u16(&self.source()[2..4]),
+            BigEndian::read_u16(&self.destination()[0..2]),
+            BigEndian::read_u16(&self.destination()[2..4])
+        ].iter().map(|x| u32::from(*x)).sum();
+        let options = self.options();
+        for i in 0..(options.len() / 2) {
+            sum += u32::from(BigEndian::read_u16(&options[i * 2..i * 2 + 2]));
+        }
+
+        let carry_add = (sum & 0xffff) + (sum >> 16);
+        !(((carry_add & 0xffff) + (carry_add >> 16)) as u16)
+    }
+
     ///Decode all the fields and copy the results to a Ipv4Header struct
     pub fn to_header(&self) -> Ipv4Header {
         let options = self.options();

@@ -2,7 +2,7 @@ use super::super::*;
 
 extern crate byteorder;
 
-use self::byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt};
+use self::byteorder::{ByteOrder, BigEndian, ReadBytesExt, WriteBytesExt, LittleEndian};
 use std::fmt::{Debug, Formatter};
 
 //TODO checksum calculation
@@ -685,6 +685,10 @@ impl<T: AsRef<[u8]>> TcpHeaderSlice<T> {
         (self.slice.as_ref()[12] & 0xf0) >> 4
     }
 
+    pub fn flags(&self) -> u16 {
+        BigEndian::read_u16(&self.slice.as_ref()[12..14]) & 0x01FF
+    }
+
     ///ECN-nonce - concealment protection (experimental: see RFC 3540)
     pub fn ns(&self) -> bool {
         0 != (self.slice.as_ref()[12] & 1)
@@ -796,27 +800,29 @@ impl<T: AsRef<[u8]>> TcpHeaderSlice<T> {
     }
 
     ///Calculates the upd header checksum based on a ipv4 header and returns the result. This does NOT set the checksum.
-    pub fn calc_checksum_ipv4<K: AsRef<[u8]>>(&self, ip_header: Ipv4HeaderSlice<K>, payload: &[u8]) -> Result<u16, ValueError> {
-        self.calc_checksum_ipv4_raw(&ip_header.source(), &ip_header.destination(), payload)
+    pub fn calc_checksum_ipv4<K: AsRef<[u8]>>(&self, ip_header: &Ipv4HeaderSlice<K>, payload: &[u8]) -> Result<u16, ValueError> {
+        let tcp_len = ip_header.total_len() as usize - (payload.len() + ip_header.ihl() as usize * 4);
+        self.calc_checksum_ipv4_raw(ip_header.source(), ip_header.destination(), tcp_len, payload)
     }
 
     ///Calculates the checksum for the current header in ipv4 mode and returns the result. This does NOT set the checksum.
-    pub fn calc_checksum_ipv4_raw(&self, source_ip: &[u8], destination_ip: &[u8], payload: &[u8]) -> Result<u16, ValueError> {
+    fn calc_checksum_ipv4_raw(&self, source_ip: &[u8], destination_ip: &[u8], tcp_len: usize, payload: &[u8]) -> Result<u16, ValueError> {
 
         //check that the total length fits into the field
-        let tcp_length = self.slice.as_ref().len() + payload.len();
+        let tcp_length = tcp_len + payload.len();
         if (std::u16::MAX as usize) < tcp_length {
             return Err(ValueError::TcpLengthTooLarge(tcp_length));
         }
 
         //calculate the checksum
-        Ok(self.calc_checksum_post_ip(u64::from(BigEndian::read_u16(&source_ip[0..2])) + //pseudo header
-                                          u64::from(BigEndian::read_u16(&source_ip[2..4])) +
-                                          u64::from(BigEndian::read_u16(&destination_ip[0..2])) +
-                                          u64::from(BigEndian::read_u16(&destination_ip[2..4])) +
-                                          IpTrafficClass::Tcp as u64 +
-                                          tcp_length as u64,
-                                      payload))
+        Ok(Self::calc_checksum_post_ip(u64::from(BigEndian::read_u16(&source_ip[0..2])) + //pseudo header
+                                           u64::from(BigEndian::read_u16(&source_ip[2..4])) +
+                                           u64::from(BigEndian::read_u16(&destination_ip[0..2])) +
+                                           u64::from(BigEndian::read_u16(&destination_ip[2..4])) +
+                                           IpTrafficClass::Tcp as u64 +
+                                           tcp_length as u64,
+                                       &self.slice()[..tcp_len],
+                                       payload))
     }
 
     ///Calculates the upd header checksum based on a ipv6 header and returns the result. This does NOT set the checksum..
@@ -841,7 +847,7 @@ impl<T: AsRef<[u8]>> TcpHeaderSlice<T> {
             }
             result
         }
-        Ok(self.calc_checksum_post_ip(
+        Ok(Self::calc_checksum_post_ip(
             calc_addr_sum(source) +
                 calc_addr_sum(destination) +
                 IpTrafficClass::Tcp as u64 +
@@ -851,20 +857,21 @@ impl<T: AsRef<[u8]>> TcpHeaderSlice<T> {
                     u64::from(BigEndian::read_u16(&buffer[0..2])) +
                         u64::from(BigEndian::read_u16(&buffer[2..4]))
                 },
+            self.slice(),
             payload))
     }
 
     ///This method takes the sum of the pseudo ip header and calculates the rest of the checksum.
-    fn calc_checksum_post_ip(&self, ip_pseudo_header_sum: u64, payload: &[u8]) -> u16 {
+    fn calc_checksum_post_ip(ip_pseudo_header_sum: u64, tcp_slice: &[u8], payload: &[u8]) -> u16 {
         let mut sum = ip_pseudo_header_sum;
 
         //until checksum
         for i in RangeStep::new(0, 16, 2) {
-            sum += u64::from(BigEndian::read_u16(&self.slice.as_ref()[i..i + 2]));
+            sum += u64::from(BigEndian::read_u16(&tcp_slice[i..i + 2]));
         }
         //after checksum
-        for i in RangeStep::new(18, self.slice.as_ref().len(), 2) {
-            sum += u64::from(BigEndian::read_u16(&self.slice.as_ref()[i..i + 2]));
+        for i in RangeStep::new(18, tcp_slice.len(), 2) {
+            sum += u64::from(BigEndian::read_u16(&tcp_slice[i..i + 2]));
         }
         //payload
         for i in RangeStep::new(0, payload.len() / 2 * 2, 2) {
@@ -953,22 +960,26 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> TcpHeaderSlice<T> {
     }
 
     ///Options of the header
-    pub fn set_options_raw(&mut self, value: &[u8]) -> bool {
+    pub fn set_options_raw(&mut self, value: &[u8]) -> Option<usize> {
         /* round up */
         let length_words = (value.len() + 3) / 4;
 
         if TCP_MAXIMUM_DATA_OFFSET as usize - 5 < length_words {
-            return false;
+            println!("options is too large");
+            return None;
         }
 
-        let new_data_offset_words = length_words + 5;
-        if new_data_offset_words * 4 < self.slice.as_ref().len() {
-            return false;
+        let new_data_offset_words = length_words + TCP_MINIMUM_DATA_OFFSET as usize;
+        if self.slice.as_ref().len() < new_data_offset_words * 4 {
+            println!("buffer is not large enough for options");
+            return None;
         }
 
         self.set_data_offset(new_data_offset_words as u8);
-        self.slice.as_mut()[TCP_MINIMUM_HEADER_SIZE..(TCP_MINIMUM_HEADER_SIZE + value.len())].copy_from_slice(value);
-        true
+        let header_len = TCP_MINIMUM_HEADER_SIZE + value.len();
+        self.slice.as_mut()[TCP_MINIMUM_HEADER_SIZE..header_len].copy_from_slice(value);
+
+        Some(header_len)
     }
 }
 
@@ -1169,4 +1180,16 @@ impl<'a> Iterator for TcpOptionsIterator<'a> {
             result
         }
     }
+}
+
+pub mod tcp_flags {
+    pub const FIN: u16 = 0b0_0000_0001;
+    pub const SYN: u16 = 0b0_0000_0010;
+    pub const RST: u16 = 0b0_0000_0100;
+    pub const PSH: u16 = 0b0_0000_1000;
+    pub const ACK: u16 = 0b0_0001_0000;
+    pub const URG: u16 = 0b0_0010_0000;
+    pub const ECE: u16 = 0b0_0100_0000;
+    pub const CWR: u16 = 0b0_1000_0000;
+    pub const NS: u16 = 0b1_0000_0000;
 }
