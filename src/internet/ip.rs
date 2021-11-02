@@ -1,34 +1,8 @@
+extern crate byteorder;
+
 use super::super::*;
 
-extern crate byteorder;
 use self::byteorder::ReadBytesExt;
-
-///Internet protocol headers version 4 & 6
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum IpHeader {
-    Version4(Ipv4Header),
-    Version6(Ipv6Header)
-}
-
-impl IpHeader {
-    ///Reads an IP (v4 or v6) header from the current position.
-    pub fn read<T: io::Read + io::Seek + Sized>(reader: &mut T) -> Result<IpHeader, ReadError> {
-        let value = reader.read_u8()?;
-        match value >> 4 {
-            4 => Ok(IpHeader::Version4(Ipv4Header::read_without_version(reader, value & 0xf)?)),
-            6 => Ok(IpHeader::Version6(Ipv6Header::read_without_version(reader, value & 0xf)?)),
-            version => Err(ReadError::IpUnsupportedVersion(version))
-        }
-    }
-    ///Writes an IP (v4 or v6) header to the current position
-    pub fn write<T: io::Write + Sized>(&self, writer: &mut T) -> Result<(), WriteError> {
-        use crate::IpHeader::*;
-        match *self {
-            Version4(ref value) => value.write(writer),
-            Version6(ref value) => value.write(writer)
-        }
-    }
-}
 
 ///Identifiers for the traffic_class field in ipv6 headers and protocol field in ipv4 headers.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -320,11 +294,10 @@ pub enum IpTrafficClass {
     ///Use for experimentation and testing
     ExperimentalAndTesting0 = 253,
     ///Use for experimentation and testing
-    ExperimentalAndTesting1 = 254
+    ExperimentalAndTesting1 = 254,
 }
 
 impl IpTrafficClass {
-
     ///Returns true if the given id identifies an IPV6 extension header traffic class.
     pub fn is_ipv6_ext_header_value(value: u8) -> bool {
         use crate::IpTrafficClass::*;
@@ -339,11 +312,11 @@ impl IpTrafficClass {
         const SHIM6: u8 = Shim6 as u8; //140
         const EXP0: u8 = ExperimentalAndTesting0 as u8; //253
         const EXP1: u8 = ExperimentalAndTesting1 as u8; //254
-        
+
         match value {
-            HOP_BY_HOP | ROUTE | FRAG | ENCAP_SEC | AUTH 
+            HOP_BY_HOP | ROUTE | FRAG | ENCAP_SEC | AUTH
             | OPTIONS | MOBILITY | HIP | SHIM6 | EXP0 | EXP1
-                => true,
+            => true,
             _ => false
         }
     }
