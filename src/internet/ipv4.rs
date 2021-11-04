@@ -43,7 +43,7 @@ impl<'a> Ipv4HeaderSlice<&'a mut [u8]> {
 }
 
 impl<T: AsRef<[u8]>> Ipv4HeaderSlice<T> {
-    fn read_length(buffer: T) -> Result<usize, ReadError> {
+    pub fn read_length(buffer: T) -> Result<usize, ReadError> {
         let slice = buffer.as_ref();
 
         //check length
