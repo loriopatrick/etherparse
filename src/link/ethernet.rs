@@ -119,9 +119,19 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Ethernet2HeaderSlice<T> {
         self.slice.as_mut()[..6].copy_from_slice(address);
     }
 
+    ///Read the destination mac address
+    pub fn destination_mut(&mut self) -> &mut [u8] {
+        &mut self.slice.as_mut()[..6]
+    }
+
     ///Read the source mac address
     pub fn set_source(&mut self, address: &[u8]) {
         self.slice.as_mut()[6..12].copy_from_slice(address)
+    }
+
+    ///Read the source mac address
+    pub fn source_mut(&mut self) -> &mut [u8] {
+        &mut self.slice.as_mut()[6..12]
     }
 
     ///Read the ether_type field of the header (in system native byte order).

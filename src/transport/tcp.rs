@@ -375,6 +375,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> TcpHeaderSlice<T> {
 
         Ok(())
     }
+
+    pub fn options_mut(&mut self) -> &mut [u8] {
+        let range = TCP_MINIMUM_HEADER_SIZE..self.data_offset() as usize * 4;
+        &mut self.slice.as_mut()[range]
+    }
 }
 
 ///Different kinds of options that can be present in the options part of a tcp header.

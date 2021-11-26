@@ -163,3 +163,25 @@ impl<T: AsRef<[u8]>> UdpHeaderSlice<T> {
         }
     }
 }
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> UdpHeaderSlice<T> {
+    ///Reads the "udp source port" from the slice.
+    pub fn set_source_port(&mut self, port: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[..2], port)
+    }
+
+    ///Reads the "udp destination port" from the slice.
+    pub fn set_destination_port(&mut self, port: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[2..4], port)
+    }
+
+    ///Reads the "length" from the slice.
+    pub fn set_length(&mut self, len: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[4..6], len)
+    }
+
+    ///Reads the "checksum" from the slice.
+    pub fn set_checksum(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.slice.as_mut()[6..8], value)
+    }
+}
